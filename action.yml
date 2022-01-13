@@ -1,0 +1,81 @@
+name: 'ECS Release'
+description: 'Automate steps to build Docker images and deploy to ECS via task definitions'
+
+inputs:
+  stage:
+    required: true
+    description: 'Deployment stage'
+  aws-access-key-id:
+    required: true
+    description: 'AWS Access Key ID'
+  aws-secret-access-key:
+    required: true
+    description: 'AWS Secret Key'
+  aws-region:
+    required: true
+    description: 'AWS ECR/ECS Region'
+  ecr-repository:
+    required: true
+    description: 'ECR Repository Name'
+  image-tag:
+    required: false
+    description: 'Docker Image Tag'
+    default: 'latest'
+  build-options:
+    required: false
+    description: 'Docker build options'
+    default: ''
+  task-definition:
+    required: true
+    description: 'Path to task definition'
+  container-name:
+    required: true
+    description: 'Name of Docker container being deployed'
+  ecs-service-name:
+    required: true
+    description: 'ECS Service Name'
+  ecs-cluster-name:
+    required: true
+    description: 'ECS Cluster Name'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Login to ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Build, tag, & push image to ECR
+      id: build-img
+      shell: bash
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: ${{ inputs.ecr-repository }}
+        IMAGE_TAG: ${{ inputs.image-tag }}
+        BUILD_ARGS: ${{ inputs.build-options }}
+      run: |
+        docker build $BUILD_ARGS -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+    - name: Update image ID in ECS task definition
+      id: task-def
+      uses: aws-actions/amazon-ecs-render-task-definition@v1
+      with:
+        task-definition: ${{ inputs.task-definition }}
+        container-name: ${{ inputs.container-name }}
+        image: ${{ steps.build-img.outputs.image }}
+
+    - name: Deploy task definition to ECS
+      uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+      with:
+        task-definition: ${{ steps.task-def.outputs.task-definition }}
+        service: ${{ inputs.ecs-service-name }}
+        cluster: ${{ inputs.ecs-cluster-name }}
