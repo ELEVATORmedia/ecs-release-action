@@ -32,7 +32,7 @@ jobs:
           node-version: 14
 
       - name: Deploy application
-        uses: elevatormedia/ecs-release-action
+        uses: elevatormedia/ecs-release-action@v1
         with:
           stage: production
           aws-access-key-id: 'ABC123abc'
